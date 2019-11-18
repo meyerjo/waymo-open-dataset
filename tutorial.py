@@ -12,13 +12,53 @@ from waymo_open_dataset import dataset_pb2 as open_dataset
 import matplotlib.pyplot as plt
 
 from custom_utils import get_range_image, show_camera_image, show_range_image, \
-    plot_points_on_image, rgba, poolingOverlap
+    plot_points_on_image, rgba, poolingOverlap, projected_points_to_image
 
 # FILENAME = '/home/meyerjo/code/waymo-od/tutorial/frames'
 OUTPUT_DIR = os.path.join(
     os.path.expanduser('~'), 'Downloads', 'waymodataset'
 )
 files = os.listdir(OUTPUT_DIR)
+
+
+def camera_response_times(dataset):
+    frame_triggered = []
+    frame_readout_time = []
+    for data in dataset:
+        frame = open_dataset.Frame()
+        frame.ParseFromString(bytearray(data.numpy()))
+
+        frame_readout_time.append(frame.images[open_dataset.CameraName.FRONT].camera_readout_done_time)
+        frame_triggered.append(frame.images[open_dataset.CameraName.FRONT].camera_trigger_time)
+    earliest_trigger_time = min(frame_triggered)
+    frame_triggered = [f - earliest_trigger_time for f in frame_triggered]
+    # still using the trigger time as 'anchor' point in order to see the offset
+    frame_readout_time = [f - earliest_trigger_time for f in frame_readout_time]
+
+    plt.plot(frame_triggered, np.ones_like(frame_triggered), 'x')
+    plt.plot(frame_readout_time, np.ones_like(frame_readout_time)*2, 'x')
+    plt.xlabel('time')
+    plt.ylabel('type')
+    plt.yticks([1, 2], ['trigger', 'readout'])
+    plt.show()
+
+    time_trigger = [frame_triggered[::-1][i] - frame_triggered[::-1][i + 1] for i in
+                    range(len(frame_triggered[::-1]) - 1)]
+
+    print('trigger_time: {} +- {}; min trigger time: {}, max trigger time: {}'.format(
+        np.mean(time_trigger),
+        np.std(time_trigger),
+        np.min(time_trigger),
+        np.max(time_trigger)
+    ))
+
+
+    return frame_triggered, frame_readout_time
+
+
+
+
+
 
 
 def handle_file(DIR, fname, OUTPUT_DIR):
@@ -34,9 +74,13 @@ def handle_file(DIR, fname, OUTPUT_DIR):
     FILENAME = os.path.join(DIR, fname)
     dataset = tf.data.TFRecordDataset(FILENAME, compression_type='')
     i = 0
+
+    camera_response_times(dataset)
+
     for data in dataset:
         frame = open_dataset.Frame()
         frame.ParseFromString(bytearray(data.numpy()))
+
         print(
             'frame.context: {} ({}, {}, {})'.format(
                 frame.context.name,
@@ -70,7 +114,7 @@ def handle_file(DIR, fname, OUTPUT_DIR):
             range_image_top_return_0 = get_range_image(range_images, _laser_name_id, 0)
             range_image_top_return_1 = get_range_image(range_images, _laser_name_id, 1)
             # 1,4 correspond to the start index
-            plt.figure(figsize=(64, 20))
+            plt.figure(figsize=(32, 20))
             show_range_image(range_image_top_return_0, 1)
             show_range_image(range_image_top_return_1, 4)
             ax = plt.subplot(*[8, 1, 8])
@@ -126,11 +170,12 @@ def handle_file(DIR, fname, OUTPUT_DIR):
             img_np[coordinates[:, 1], coordinates[:, 0]] = projected_points_all_from_raw_data[:, 2]
 
             dense_matrix = poolingOverlap(img_np, ksize=(15, 10),
-                               stride=(1, 1), method='mean', pad=True)
+                                          stride=(1, 1), method='mean', pad=True)
 
             xv, yv = np.meshgrid(
                 range(0, width), range(0, height), indexing='ij'
             )
+
 
             xv = xv.reshape(-1,)
             yv = yv.reshape(-1,)
@@ -139,28 +184,33 @@ def handle_file(DIR, fname, OUTPUT_DIR):
             xv = xv[valid_coordinates]
             yv = yv[valid_coordinates]
             dense_vector = dense_vector[valid_coordinates]
-            colorized_m = rgba(dense_vector)[:-1]
-            colorized_m = np.array(colorized_m)[:, 0:3]
-
-            plt.figure()
-            plt.scatter(yv[:-1], xv[:-1], c=colorized_m)
-            plt.gca().invert_yaxis()
-            plt.title('XYZ')
-            plt.show()
+            # colorized_m = rgba(dense_vector)[:-1]
+            # colorized_m = np.array(colorized_m)[:, 0:3]
 
             proj = np.vstack([yv, xv, dense_vector]).transpose()
 
-            plt.figure(figsize=(64, 20))
-            plt.tight_layout()
-            plot_points_on_image(proj,
-                                 current_image, rgba, point_size=5.0)
+            colorized_depth_image = projected_points_to_image(
+                tf.image.decode_jpeg(current_image.image).numpy().shape,
+                proj,
+                rgba
+            )
+
+
+            plt.figure()
+            # plt.scatter(yv[:-1], xv[:-1], c=colorized_m)
+            plt.imshow(colorized_depth_image)
+            # plt.gca().invert_yaxis()
+            plt.title('XYZ')
             plt.show()
 
 
+
             plt.figure(figsize=(64, 20))
             plt.tight_layout()
-            plot_points_on_image(projected_points_all_from_raw_data,
-                                 current_image, rgba, point_size=5.0)
+            plot_points_on_image(
+                proj, colorized_depth_image,
+                current_image, rgba, point_size=5.0)
+            plt.show()
             # plt.show()
             plt.savefig('./camera_{}.png'.format(i))
 

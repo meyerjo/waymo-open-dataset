@@ -87,6 +87,20 @@ def show_range_image(range_image, layout_index_start = 1):
     plot_range_image_helper(range_image_elongation.numpy(), 'elongation',
                             [8, 1, layout_index_start + 2], vmax=1.5, cmap='gray')
 
+def projected_points_to_image(im_shape, points, color_func=None):
+    from PIL import Image
+    assert(color_func is not None)
+    #
+    im = np.zeros(shape=im_shape, dtype=np.float32)
+    y = points[:, 0].astype(np.int32)
+    x = points[:, 1].astype(np.int32)
+    d = points[:, 2].tolist()
+    d_col = np.array([color_func(_) for _ in d])
+
+    im[x, y, :] = d_col[:, 0:3] * 255
+
+    return Image.fromarray(im.astype(np.uint8))
+
 def rgba(r):
     """Generates a color based on range.
 
@@ -107,7 +121,8 @@ def plot_image(camera_image, create_fig=True):
     plt.imshow(tf.image.decode_jpeg(camera_image.image))
     plt.grid("off")
 
-def plot_points_on_image(projected_points, camera_image, rgba_func,
+def plot_points_on_image(
+        projected_points, depth_image, camera_image, rgba_func,
                          point_size=5.0):
     """Plots points on a camera image.
 
@@ -137,8 +152,7 @@ def plot_points_on_image(projected_points, camera_image, rgba_func,
     plot_image(camera_image, create_fig=False)
     #
     plt.subplot(133)
-    plt.scatter(xs, ys, c=colors, s=point_size, edgecolors="none")
-    plt.gca().invert_yaxis()
+    plt.imshow(depth_image)
     plt.grid("off")
 
 import numpy as np
