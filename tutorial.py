@@ -56,11 +56,6 @@ def camera_response_times(dataset):
     return frame_triggered, frame_readout_time
 
 
-
-
-
-
-
 def handle_file(DIR, fname, OUTPUT_DIR):
     segment_m = re.search(
         '^(.+)_with_camera_labels.tfrecord$', fname
@@ -101,10 +96,6 @@ def handle_file(DIR, fname, OUTPUT_DIR):
         plt.show()
         i += 1
 
-
-        # frame.lasers.sort(key=lambda laser: laser.name)
-        #
-        #
         names = ['TOP', 'FRONT', 'REAR', 'SIDE_LEFT', 'SIDE_RIGHT']
         for _laser_name in names:
             _laser_name_id = getattr(open_dataset.LaserName, _laser_name, None)
@@ -158,10 +149,6 @@ def handle_file(DIR, fname, OUTPUT_DIR):
             img_np = np.zeros_like(img_tensor.numpy())[:, :, 0].astype(np.float32)
             img_np[:] = np.nan
 
-            # ext_img_np = np.expand_dims(np.expand_dims(img_np, axis=-1), axis=0)
-            # avg_layer = tf.keras.layers.AvgPool2D(
-            #     pool_size=(15, 10), strides=(1, 1), padding='same')(ext_img_np)
-
             # TODO: this seems to be wrong
             (width, height) = img_np.shape
 
@@ -184,17 +171,13 @@ def handle_file(DIR, fname, OUTPUT_DIR):
             xv = xv[valid_coordinates]
             yv = yv[valid_coordinates]
             dense_vector = dense_vector[valid_coordinates]
-            # colorized_m = rgba(dense_vector)[:-1]
-            # colorized_m = np.array(colorized_m)[:, 0:3]
 
-            proj = np.vstack([yv, xv, dense_vector]).transpose()
+            projected_matrix = np.vstack([yv, xv, dense_vector]).transpose()
 
             colorized_depth_image = projected_points_to_image(
                 tf.image.decode_jpeg(current_image.image).numpy().shape,
-                proj,
-                rgba
+                projected_matrix, rgba
             )
-
 
             plt.figure()
             # plt.scatter(yv[:-1], xv[:-1], c=colorized_m)
@@ -208,7 +191,7 @@ def handle_file(DIR, fname, OUTPUT_DIR):
             plt.figure(figsize=(64, 20))
             plt.tight_layout()
             plot_points_on_image(
-                proj, colorized_depth_image,
+                projected_matrix, colorized_depth_image,
                 current_image, rgba, point_size=5.0)
             plt.show()
             # plt.show()
