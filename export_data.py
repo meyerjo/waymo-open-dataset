@@ -124,15 +124,14 @@ def handle_file(DIR, fname, OUTPUT_DIR):
 
         # rgb projection of images
         _images = project_image_lidar_to_image_plane(frame)
-        for i, proj_images in enumerate(_images):
+        for i, proj_img in enumerate(_images):
             _save_path = os.path.join(
                 output_data_folder, 'lidar_rgb',
                 'frame_{}_cam_{}.png'.format(
                     frame_id, i
                 )
             )
-            im = Image.fromarray(proj_images)
-            im.save(_save_path)
+            proj_img.save(_save_path)
 
         # write the summary files
 
