@@ -132,7 +132,7 @@ def handle_file(DIR, fname, OUTPUT_DIR):
         data = []
         for i, img in enumerate(frame.images):
             velocities = {x[0].name: x[1] for x in img.velocity.ListFields()}
-            pose_data = {x[0].name: x[1] for x in img.pose.ListFields()}
+            pose_data = {x[0].name: list(x[1]) for x in img.pose.ListFields()}
             data.append({
                 'id': i,
                 'name': img.name,
@@ -141,7 +141,7 @@ def handle_file(DIR, fname, OUTPUT_DIR):
                 'shutter': img.shutter,
                 'pose_timestamp': img.pose_timestamp,
                 'camera_trigger_time': img.camera_trigger_time,
-                'camera_readout_done_time': img.camera_readout_time,
+                'camera_readout_done_time': img.camera_readout_done_time,
             })
         with open(os.path.join(
                 _save_path, 'frame_{}.json'.format(frame_id)), 'w') as f:
