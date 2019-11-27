@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import time
 
 import numpy as np
 import tensorflow as tf
@@ -109,19 +110,22 @@ def handle_file(DIR, fname, OUTPUT_DIR):
 
     frame_id = 0
     for data in dataset:
+        frame_start_time = time.time()
         frame = open_dataset.Frame()
         frame.ParseFromString(bytearray(data.numpy()))
 
+        _s_rgb = time.time()
         # frame.images are given
         for index, image in enumerate(frame.images):
             _save_path = os.path.join(
-                output_data_folder, 'rgb', 'frame_{}_cam_{}.png'.format(
+                output_data_folder, 'rgb', 'frame_{:04d}_cam_{}.png'.format(
                     frame_id, index
                 )
             )
             image_decode_jpg = tf.image.decode_jpeg(image.image)
             im = Image.fromarray(image_decode_jpg.numpy())
             im.save(_save_path)
+        print('\t\tRGB time: {}'.format(time.time() - _s_rgb))
 
         _save_path = os.path.join(
             output_data_folder, 'info'
@@ -129,6 +133,7 @@ def handle_file(DIR, fname, OUTPUT_DIR):
         if not os.path.exists(_save_path):
             os.mkdir(_save_path)
 
+        _s_info = time.time()
         data = []
         for i, img in enumerate(frame.images):
             velocities = {x[0].name: x[1] for x in img.velocity.ListFields()}
@@ -144,29 +149,32 @@ def handle_file(DIR, fname, OUTPUT_DIR):
                 'camera_readout_done_time': img.camera_readout_done_time,
             })
         with open(os.path.join(
-                _save_path, 'frame_{}.json'.format(frame_id)), 'w') as f:
+                _save_path, 'frame_{:04d}.json'.format(frame_id)), 'w') as f:
             f.write(json.dumps(data))
+        print('\t\tInfo time: {}'.format(time.time() - _s_info))
 
 
         if not os.path.exists(os.path.join(output_data_folder, 'lidar_rgb')):
             os.mkdir(os.path.join(output_data_folder, 'lidar_rgb'))
         # rgb projection of images
-        _images = project_image_lidar_to_image_plane(frame)
-        for i, proj_img in enumerate(_images):
-            _save_path = os.path.join(
-                output_data_folder, 'lidar_rgb',
-                'frame_{}_cam_{}.png'.format(
-                    frame_id, i
-                )
-            )
-            proj_img.save(_save_path)
+        # _images = project_image_lidar_to_image_plane(frame)
+        # for i, proj_img in enumerate(_images):
+        #     _save_path = os.path.join(
+        #         output_data_folder, 'lidar_rgb',
+        #         'frame_{:04d}_cam_{}.png'.format(
+        #             frame_id, i
+        #         )
+        #     )
+        #     proj_img.save(_save_path)
 
         # write the summary files
 
         # output bounding boxes
 
         frame_id += 1
-
+        print('\t Frame {:04d} handled took: {} sec'.format(
+            frame_id-1, time.time() - frame_start_time
+        ))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('export_data')
@@ -191,11 +199,8 @@ if __name__ == '__main__':
 
     # go through them
     for i, f in enumerate(files):
-        if (i % 10 == 0):
-            print('{}/{} files parsed. Current file: {}'.format(
-                i, len(files), f))
+        print('{}/{} files parsed. Current file: {}'.format(
+            i, len(files), f))
         # go through all the files
         handle_file(input_directory, f, args.output_dir)
 
-        if i >= 1:
-            break
