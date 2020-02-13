@@ -19,6 +19,9 @@ import os
 
 from concurrent.futures import ThreadPoolExecutor
 
+executor = None
+
+
 def mkdir_p(path):
     try:
         os.makedirs(path)
@@ -28,11 +31,13 @@ def mkdir_p(path):
         else:
             raise
 
+
 def get(object_list, name):
     """ Search for an object by name in an object list. """
 
     object_list = [obj for obj in object_list if obj.name == name]
     return object_list[0]
+
 
 def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
     """
@@ -46,7 +51,6 @@ def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
     camera_image = get(frame.images, camera)
     # get the image
     img_tensor = tf.image.decode_jpeg(camera_image.image)
-
 
     img_np = np.zeros_like(img_tensor.numpy())[:, :, 0].astype(np.float32)
     img_np[:] = np.nan
@@ -68,7 +72,7 @@ def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
     # TODO: this seems to be wrong
     (width, height) = img_np.shape
 
-    coordinates = projected_points_all_from_raw_data[:, 0:2].\
+    coordinates = projected_points_all_from_raw_data[:, 0:2]. \
         astype(np.int32)
 
     img_np[coordinates[:, 1], coordinates[:, 0]] = \
@@ -79,7 +83,7 @@ def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
                        pad=True)
 
     xv, yv = np.meshgrid(range(0, width), range(0, height), indexing='ij')
-    xv, yv = xv.reshape(-1,), yv.reshape(-1,)
+    xv, yv = xv.reshape(-1, ), yv.reshape(-1, )
     dense_vector = dense_matrix.reshape(-1, )
     valid_coordinates = dense_vector > 0.
     xv, yv = xv[valid_coordinates], yv[valid_coordinates]
@@ -92,7 +96,6 @@ def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
     )
 
     return depth_np_arr
-
 
 
 def project_image_lidar_to_image_plane(frame, camera_names):
@@ -133,6 +136,28 @@ def project_image_lidar_to_image_plane(frame, camera_names):
     return _image_results
 
 
+def handle_frame(frame, frame_id, output_path):
+    # rgb projection of images
+    camera_names = {
+        'front': open_dataset.CameraName.FRONT,
+        # 'front_left': open_dataset.CameraName.FRONT_LEFT,
+        # 'front_right': open_dataset.CameraName.FRONT_RIGHT,
+        # 'side_left': open_dataset.CameraName.SIDE_LEFT,
+        # 'side_right': open_dataset.CameraName.SIDE_RIGHT
+    }
+
+    _image_results = project_image_lidar_to_image_plane(frame, camera_names)
+    for camera_name, images in _image_results.items():
+        _fpath = os.path.join(output_path, camera_name)
+        if not os.path.exists(_fpath):
+            mkdir_p(_fpath)
+        for i, col_img in enumerate(images):
+            _save_path = os.path.join(_fpath,
+                                      'frame_{:05d}.png'.format(frame_id))
+            col_img.save(_save_path)
+
+
+
 def handle_file(input_filename, output_dir):
     input_path, input_fname = os.path.split(input_filename)
     segment_m = re.search(
@@ -142,11 +167,11 @@ def handle_file(input_filename, output_dir):
         return
     # create the output folder
 
-
     if not os.path.exists(os.path.join(output_dir, 'lidar_rgb')):
         os.mkdir(os.path.join(output_dir, 'lidar_rgb'))
 
-    output_data_folder = os.path.join(output_dir, 'lidar_rgb', segment_m.group(1))
+    output_data_folder = os.path.join(output_dir, 'lidar_rgb',
+                                      segment_m.group(1))
     if not os.path.exists(output_data_folder):
         os.mkdir(output_data_folder)
 
@@ -165,29 +190,16 @@ def handle_file(input_filename, output_dir):
         except BaseException as e:
             print('\tError: {}'.format(e))
 
-        # rgb projection of images
-        camera_names = {
-            'front': open_dataset.CameraName.FRONT,
-            # 'front_left': open_dataset.CameraName.FRONT_LEFT,
-            # 'front_right': open_dataset.CameraName.FRONT_RIGHT,
-            # 'side_left': open_dataset.CameraName.SIDE_LEFT,
-            # 'side_right': open_dataset.CameraName.SIDE_RIGHT
-        }
-
-        _image_results = project_image_lidar_to_image_plane(frame, camera_names)
-        for camera_name, images in _image_results.items():
-            _fpath = os.path.join(
-                output_data_folder, camera_name)
-            if not os.path.exists(_fpath):
-                mkdir_p(_fpath)
-            for i, col_img in enumerate(images):
-                _save_path = os.path.join(_fpath, 'frame_{:05d}.png'.format(i))
-                col_img.save(_save_path)
+        if executor is None:
+            handle_frame(frame, frame_id, output_data_folder)
+        else:
+            executor.submit(handle_frame, frame, frame_id, output_data_folder)
 
         frame_id += 1
         print('\t Frame {:04d} handled took: {} sec'.format(
-            frame_id-1, time.time() - frame_start_time
+            frame_id - 1, time.time() - frame_start_time
         ))
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('export_data')
@@ -200,6 +212,7 @@ if __name__ == '__main__':
     executor = ThreadPoolExecutor(max_workers=args.max_workers)
 
     from turbo_map import RGBToPyCmap, turbo_colormap_data
+
     mpl_data = RGBToPyCmap(turbo_colormap_data)
     plt.register_cmap(name='turbo', data=mpl_data,
                       lut=turbo_colormap_data.shape[0])
@@ -207,7 +220,6 @@ if __name__ == '__main__':
     mpl_data_r = RGBToPyCmap(turbo_colormap_data[::-1, :])
     plt.register_cmap(name='turbo_r', data=mpl_data_r,
                       lut=turbo_colormap_data.shape[0])
-
 
     if not os.path.exists(args.output_dir):
         print('Output directory does not exist')
@@ -232,6 +244,5 @@ if __name__ == '__main__':
         #     i, len(files), f))
         # go through all the files
         _input_filename = os.path.join(input_directory, f)
-        # handle_file(_input_filename, args.output_dir)
-        executor.submit(handle_file, _input_filename, args.output_dir)
-
+        handle_file(_input_filename, args.output_dir)
+        # executor.submit(handle_file, _input_filename, args.output_dir)
