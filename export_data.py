@@ -1,5 +1,4 @@
 import argparse
-import os
 import re
 import time
 
@@ -11,12 +10,14 @@ tf.enable_eager_execution()
 from waymo_open_dataset.utils import frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
 
-from custom_utils import rgba, poolingOverlap, projected_points_to_image, turbo_rgba
+from custom_utils import poolingOverlap, projected_points_to_image, turbo_rgba
 import matplotlib.pyplot as plt
 from custom_utils import colorize_np_arr
 
 import errno
 import os
+
+from concurrent.futures import ThreadPoolExecutor
 
 def mkdir_p(path):
     try:
@@ -34,6 +35,14 @@ def get(object_list, name):
     return object_list[0]
 
 def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
+    """
+
+    :param frame: frame camera
+    :param camera: camera name
+    :param points_all:  ndarray
+    :param cp_points_all: ndarray
+    :return:
+    """
     camera_image = get(frame.images, camera)
     # get the image
     img_tensor = tf.image.decode_jpeg(camera_image.image)
@@ -59,8 +68,8 @@ def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
     # TODO: this seems to be wrong
     (width, height) = img_np.shape
 
-    coordinates = projected_points_all_from_raw_data[:, 0:2].astype(
-        np.int32)
+    coordinates = projected_points_all_from_raw_data[:, 0:2].\
+        astype(np.int32)
 
     img_np[coordinates[:, 1], coordinates[:, 0]] = \
         projected_points_all_from_raw_data[:, 2]
@@ -70,17 +79,14 @@ def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
                        pad=True)
 
     xv, yv = np.meshgrid(range(0, width), range(0, height), indexing='ij')
-
-    xv = xv.reshape(-1, )
-    yv = yv.reshape(-1, )
+    xv, yv = xv.reshape(-1,), yv.reshape(-1,)
     dense_vector = dense_matrix.reshape(-1, )
     valid_coordinates = dense_vector > 0.
-    xv = xv[valid_coordinates]
-    yv = yv[valid_coordinates]
+    xv, yv = xv[valid_coordinates], yv[valid_coordinates]
     dense_vector = dense_vector[valid_coordinates]
-
     projected_matrix = np.vstack([yv, xv, dense_vector]).transpose()
 
+    # project the points to an depth_np_arr
     depth_np_arr = projected_points_to_image(
         img_tensor.numpy().shape, projected_matrix
     )
@@ -188,7 +194,10 @@ if __name__ == '__main__':
     parser.add_argument('--input_dir', type=str, help='Input directory')
     parser.add_argument('--output_dir', type=str, help='Output directory',
                         default='./output')
+    parser.add_argument('--max_workers', type=int, default=4)
     args = parser.parse_args()
+
+    executor = ThreadPoolExecutor(max_workers=args.max_workers)
 
     from turbo_map import RGBToPyCmap, turbo_colormap_data
     mpl_data = RGBToPyCmap(turbo_colormap_data)
@@ -223,5 +232,6 @@ if __name__ == '__main__':
         #     i, len(files), f))
         # go through all the files
         _input_filename = os.path.join(input_directory, f)
-        handle_file(_input_filename, args.output_dir)
+        # handle_file(_input_filename, args.output_dir)
+        executor.submit(handle_file, _input_filename, args.output_dir)
 
