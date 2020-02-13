@@ -88,18 +88,33 @@ def show_range_image(range_image, layout_index_start = 1):
                             [8, 1, layout_index_start + 2], vmax=1.5, cmap='gray')
 
 def projected_points_to_image(im_shape, points, color_func=None):
-    from PIL import Image
-    assert(color_func is not None)
-    #
-    im = np.zeros(shape=im_shape, dtype=np.float32)
+    depth_image_shape = im_shape[0:2] + (1,)
+    im = np.zeros(shape=depth_image_shape, dtype=np.float32)
     y = points[:, 0].astype(np.int32)
     x = points[:, 1].astype(np.int32)
     d = points[:, 2].tolist()
-    d_col = np.array([color_func(_) for _ in d])
+    im[x, y, 0] = d
+    return im
 
-    im[x, y, :] = d_col[:, 0:3] * 255
+def colorize_np_arr(depth_map, color_func=None):
+    # d_col = np.array([color_func(_) for _ in d])
+    #
+    # im[x, y, :] = d_col[:, 0:3] * 255
 
-    return Image.fromarray(im.astype(np.uint8))
+    from PIL import Image
+    assert(color_func is not None)
+    colorized_arr = color_func(depth_map)
+    colorized_arr = np.hstack(colorized_arr[:-1])
+
+    color_im_arr = colorized_arr[:, :, 0:3]
+    color_im_arr = np.hstack([np.zeros((1920, 1, 3)), color_im_arr])
+    color_im_arr = color_im_arr * 255
+    color_im_arr = np.transpose(color_im_arr, [1, 0, 2])
+    color_im_arr_uint8 = color_im_arr.astype(np.uint8)
+
+    pil_im = Image.fromarray(color_im_arr_uint8)
+
+    return pil_im
 
 def rgba(r):
     """Generates a color based on range.
@@ -110,6 +125,19 @@ def rgba(r):
       The color for a given range
     """
     c = plt.get_cmap('jet')((r % 20.0) / 20.0)
+    c = list(c)
+    c[-1] = 0.5  # alpha
+    return c
+
+def turbo_rgba(r):
+    """Generates a color based on range.
+
+    Args:
+      r: the range value of a given point.
+    Returns:
+      The color for a given range
+    """
+    c = plt.get_cmap('turbo')((r % 20.0) / 20.0)
     c = list(c)
     c[-1] = 0.5  # alpha
     return c
