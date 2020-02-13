@@ -124,6 +124,7 @@ def project_image_lidar_to_image_plane(frame, camera_names):
         depth_np_arr = depth_map_by_camera_name(
             frame, camera_dataset, points_all, cp_points_all
         )
+        print(np.max(depth_np_arr))
         colorized_depth_image = colorize_np_arr(
             depth_np_arr, turbo_rgba
         )
@@ -209,7 +210,8 @@ if __name__ == '__main__':
     parser.add_argument('--max_workers', type=int, default=4)
     args = parser.parse_args()
 
-    executor = ThreadPoolExecutor(max_workers=args.max_workers)
+    if args.max_workers != -1:
+        executor = ThreadPoolExecutor(max_workers=args.max_workers)
 
     from turbo_map import RGBToPyCmap, turbo_colormap_data
 
@@ -244,5 +246,8 @@ if __name__ == '__main__':
         #     i, len(files), f))
         # go through all the files
         _input_filename = os.path.join(input_directory, f)
-        handle_file(_input_filename, args.output_dir)
+        try:
+            handle_file(_input_filename, args.output_dir)
+        except BaseException as e:
+            print(f'Error in processing file {f} with "{e}"')
         # executor.submit(handle_file, _input_filename, args.output_dir)
