@@ -194,7 +194,9 @@ def handle_file(input_filename, output_dir):
         if executor is None:
             handle_frame(frame, frame_id, output_data_folder)
         else:
-            executor.submit(handle_frame, frame, frame_id, output_data_folder)
+            import copy
+            _copy_frame = copy.deepcopy(frame)
+            executor.submit(handle_frame, _copy_frame, frame_id, output_data_folder)
 
         frame_id += 1
         print('\t Frame {:04d} handled took: {} sec'.format(
