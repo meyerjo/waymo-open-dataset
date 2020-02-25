@@ -17,7 +17,7 @@ from custom_utils import colorize_np_arr
 import errno
 import os
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 executor = None
 
@@ -167,7 +167,6 @@ def handle_file(input_filename, output_dir):
     if segment_m is None:
         return
     # create the output folder
-
     if not os.path.exists(os.path.join(output_dir, 'lidar_rgb')):
         os.mkdir(os.path.join(output_dir, 'lidar_rgb'))
 
@@ -191,12 +190,12 @@ def handle_file(input_filename, output_dir):
         except BaseException as e:
             print('\tError: {}'.format(e))
 
-        if executor is None:
-            handle_frame(frame, frame_id, output_data_folder)
-        else:
-            import copy
-            _copy_frame = copy.deepcopy(frame)
-            executor.submit(handle_frame, _copy_frame, frame_id, output_data_folder)
+        # if executor is None:
+        handle_frame(frame, frame_id, output_data_folder)
+        # else:
+        #     import copy
+        #     _copy_frame = copy.deepcopy(frame)
+        #     executor.submit(handle_frame, _copy_frame, frame_id, output_data_folder)
 
         frame_id += 1
         print('\t Frame {:04d} handled took: {} sec'.format(
@@ -209,11 +208,13 @@ if __name__ == '__main__':
     parser.add_argument('--input_dir', type=str, help='Input directory')
     parser.add_argument('--output_dir', type=str, help='Output directory',
                         default='./output')
-    parser.add_argument('--max_workers', type=int, default=4)
+    parser.add_argument('--max_workers', type=int, default=1)
     args = parser.parse_args()
 
     if args.max_workers != -1:
         executor = ThreadPoolExecutor(max_workers=args.max_workers)
+    else:
+        executor = ThreadPoolExecutor(max_workers=1)
 
     from turbo_map import RGBToPyCmap, turbo_colormap_data
 
@@ -242,14 +243,19 @@ if __name__ == '__main__':
     print(f'Reading from {input_directory} found {num_files} files')
 
     # go through them
+    collected_futures = {}
     for i, f in enumerate(files):
         print(f'({i}/{num_files}) Extracting lidar data from {f}')
         # print('{}/{} files parsed. Current file: {}'.format(
         #     i, len(files), f))
         # go through all the files
         _input_filename = os.path.join(input_directory, f)
-        try:
-            handle_file(_input_filename, args.output_dir)
-        except BaseException as e:
-            print(f'Error in processing file {f} with "{e}"')
-        # executor.submit(handle_file, _input_filename, args.output_dir)
+        # try:
+        #     handle_file(_input_filename, args.output_dir)
+        # except BaseException as e:
+        #     print(f'Error in processing file {f} with "{e}"')
+        _fut = executor.submit(handle_file, _input_filename, args.output_dir)
+        collected_futures[f] = _fut
+
+    for x in as_completed([_it for _, _it in collected_futures.items()]):
+        print(x.result())
