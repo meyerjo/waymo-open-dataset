@@ -1,5 +1,7 @@
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
+
 import tensorflow as tf
 import math
 import numpy as np
@@ -196,6 +198,7 @@ def asStride(arr,sub_shape,stride):
     subs=np.lib.stride_tricks.as_strided(arr,view_shape,strides=strides)
     return subs
 
+
 def poolingOverlap(mat,ksize,stride=None,method='max',pad=False):
     '''Overlapping pooling on 2D or 3D data.
     <mat>: ndarray, input array to pool.
@@ -229,9 +232,11 @@ def poolingOverlap(mat,ksize,stride=None,method='max',pad=False):
 
     view=asStride(mat_pad,ksize,stride)
 
-    if method=='max':
-        result=np.nanmax(view,axis=(2,3))
+    if method is None:
+        return view
+    elif method=='max':
+        return np.nanmax(view,axis=(2,3))
+    elif method == 'mean':
+        return np.nanmean(view,axis=(2,3))
     else:
-        result=np.nanmean(view,axis=(2,3))
-
-    return result
+        raise BaseException('Unknown method name: {}'.format(method))

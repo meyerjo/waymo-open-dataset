@@ -44,6 +44,8 @@ def parse_range_image_and_camera_projection(frame):
   camera_projections = {}
   range_image_top_pose = None
   for laser in frame.lasers:
+    # if laser.name != dataset_pb2.LaserName.FRONT: #TODO: verify this
+    #     continue
     if len(laser.ri_return1.range_image_compressed) > 0:  # pylint: disable=g-explicit-length-test
       range_image_str_tensor = tf.io.decode_compressed(
           laser.ri_return1.range_image_compressed, 'ZLIB')

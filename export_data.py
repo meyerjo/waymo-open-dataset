@@ -1,6 +1,8 @@
 import argparse
 import re
+import threading
 import time
+from datetime import datetime
 
 import numpy as np
 import tensorflow as tf
@@ -20,6 +22,14 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 executor = None
+
+camera_names = {
+    'front': open_dataset.CameraName.FRONT,
+    # 'front_left': open_dataset.CameraName.FRONT_LEFT,
+    # 'front_right': open_dataset.CameraName.FRONT_RIGHT,
+    # 'side_left': open_dataset.CameraName.SIDE_LEFT,
+    # 'side_right': open_dataset.CameraName.SIDE_RIGHT
+}
 
 
 def mkdir_p(path):
@@ -50,10 +60,11 @@ def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
     """
     camera_image = get(frame.images, camera)
     # get the image
-    img_tensor = tf.image.decode_jpeg(camera_image.image)
-
-    img_np = np.zeros_like(img_tensor.numpy())[:, :, 0].astype(np.float32)
-    img_np[:] = np.nan
+    img_np = np.zeros(shape=(1280, 1920))
+    # img_tensor = tf.image.decode_jpeg(camera_image.image)
+    #
+    # img_np = np.zeros_like(img_tensor.numpy())[:, :, 0].astype(np.float32)
+    # img_np[:] = np.nan
 
     # The distance between lidar points and vehicle frame origin.
     points_all_tensor = tf.norm(points_all, axis=-1, keepdims=True)
@@ -69,9 +80,6 @@ def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
         [cp_points_all_tensor[..., 1:3], points_all_tensor],
         axis=-1).numpy()
 
-    # TODO: this seems to be wrong
-    (width, height) = img_np.shape
-
     coordinates = projected_points_all_from_raw_data[:, 0:2]. \
         astype(np.int32)
 
@@ -79,8 +87,16 @@ def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
         projected_points_all_from_raw_data[:, 2]
 
     dense_matrix = \
-        poolingOverlap(img_np, ksize=(15, 10), stride=(1, 1), method='mean',
+        poolingOverlap(img_np, ksize=(15, 10), stride=(1, 1), method=None,
                        pad=True)
+
+    return dense_matrix
+
+def pool_points_project_to_image(dense_matrix, img_np):
+
+    # TODO: this is super costly
+    (width, height) = img_np.shape
+    dense_matrix = np.nanmean(dense_matrix, axis=(2, 3))
 
     xv, yv = np.meshgrid(range(0, width), range(0, height), indexing='ij')
     xv, yv = xv.reshape(-1, ), yv.reshape(-1, )
@@ -92,11 +108,10 @@ def depth_map_by_camera_name(frame, camera, points_all, cp_points_all):
 
     # project the points to an depth_np_arr
     depth_np_arr = projected_points_to_image(
-        img_tensor.numpy().shape, projected_matrix
+        img_np.shape, projected_matrix
     )
 
     return depth_np_arr
-
 
 def project_image_lidar_to_image_plane(frame, camera_names):
     (range_images, camera_projections, range_image_top_pose) = \
@@ -121,45 +136,37 @@ def project_image_lidar_to_image_plane(frame, camera_names):
     # go through all the camera images
     _image_results = {}
     for camera_name, camera_dataset in camera_names.items():
-        depth_np_arr = depth_map_by_camera_name(
+        # img_np = np.zeros(shape=(1280, 1920))
+        depth_np_matrix = depth_map_by_camera_name(
             frame, camera_dataset, points_all, cp_points_all
         )
-        print(np.max(depth_np_arr))
-        colorized_depth_image = colorize_np_arr(
-            depth_np_arr, turbo_rgba
-        )
-        if camera_name not in _image_results:
-            _image_results[camera_name] = []
 
-        _image_results[camera_name].append(
-            colorized_depth_image
-        )
+        if camera_name not in _image_results:
+            _image_results[camera_name] = depth_np_matrix
+        else:
+            raise BaseException('Camera-Name appear twice {}'.format(camera_name))
+
     return _image_results
 
-
-def handle_frame(frame, frame_id, output_path):
-    # rgb projection of images
-    camera_names = {
-        'front': open_dataset.CameraName.FRONT,
-        # 'front_left': open_dataset.CameraName.FRONT_LEFT,
-        # 'front_right': open_dataset.CameraName.FRONT_RIGHT,
-        # 'side_left': open_dataset.CameraName.SIDE_LEFT,
-        # 'side_right': open_dataset.CameraName.SIDE_RIGHT
-    }
-
-    _image_results = project_image_lidar_to_image_plane(frame, camera_names)
-    for camera_name, images in _image_results.items():
-        _fpath = os.path.join(output_path, camera_name)
-        if not os.path.exists(_fpath):
-            mkdir_p(_fpath)
-        for i, col_img in enumerate(images):
-            _save_path = os.path.join(_fpath,
-                                      'frame_{:05d}.png'.format(frame_id))
-            col_img.save(_save_path)
+def colorize_depth_map_save_img(depth_map, output_path, frame_id):
+    print('[{}] {} Start colorizing: {}'.format(
+        datetime.now(), threading.get_ident(), os.path.join(
+            output_path, 'frame_{:04d}'.format(frame_id))
+    ))
+    img_np = np.zeros(shape=(1280, 1920))
+    depth_np_arr = pool_points_project_to_image(depth_map, img_np)
+    print(np.max(depth_np_arr))
+    colorized_depth_image = colorize_np_arr(
+        depth_np_arr, turbo_rgba
+    )
+    _save_path = os.path.join(output_path,
+                              'frame_{:05d}.png'.format(frame_id))
+    colorized_depth_image.save(_save_path)
 
 
 
 def handle_file(input_filename, output_dir):
+    assert executor is not None, 'executor has to be set to None'
     input_path, input_fname = os.path.split(input_filename)
     segment_m = re.search(
         '(.+_with_camera_labels).tfrecord$', input_fname
@@ -181,26 +188,57 @@ def handle_file(input_filename, output_dir):
         print('Error while reading file: {}'.format(e))
         return
 
-    frame_id = 0
+    read_frames = []
+    print('[{}] Reading all frames'.format(datetime.now()))
+    _s = datetime.now()
     for data in dataset:
-        frame_start_time = time.time()
         frame = open_dataset.Frame()
         try:
             frame.ParseFromString(bytearray(data.numpy()))
         except BaseException as e:
             print('\tError: {}'.format(e))
+        read_frames.append(frame)
+    print('[{}] Read all frames. Took {}'.format(
+        datetime.now(), datetime.now() - _s))
 
-        # if executor is None:
-        handle_frame(frame, frame_id, output_data_folder)
-        # else:
-        #     import copy
-        #     _copy_frame = copy.deepcopy(frame)
-        #     executor.submit(handle_frame, _copy_frame, frame_id, output_data_folder)
+    # # TODO: dropping frames for development purposes
+    # read_frames = read_frames[:5]
 
-        frame_id += 1
-        print('\t Frame {:04d} handled took: {} sec'.format(
-            frame_id - 1, time.time() - frame_start_time
-        ))
+    print('[{}] Extract dense matrices for all frames'.format(datetime.now()))
+    _s = datetime.now()
+    image_matrices = []
+    for i, frame in enumerate(read_frames):
+        if i % 10 == 0:
+            print('Frame {}/{}'.format(i, len(read_frames)))
+            continue
+        image_matrices.append(project_image_lidar_to_image_plane(frame, camera_names))
+    print('[{}] Extracted all dense-matrices for all frames ({} / sample)'.format(
+        datetime.now() - _s, (datetime.now() - _s) / len(read_frames)))
+
+    print('[{}] Colorize all frames'.format(datetime.now()))
+    futures = []
+    for frame_id, image_dict in enumerate(image_matrices):
+        for camera_name, depth_np_matrix in image_dict.items():
+            _fpath = os.path.join(output_data_folder, camera_name)
+            if not os.path.exists(_fpath):
+                mkdir_p(_fpath)
+
+            # colorize_depth_map_save_img(depth_np_matrix, _fpath, frame_id)
+            future = executor.submit(
+                colorize_depth_map_save_img, depth_np_matrix, _fpath, frame_id
+            )
+            futures.append(future)
+
+            # img_np = np.zeros(shape=(1280, 1920))
+            # depth_np_arr = pool_points_project_to_image(depth_np_matrix, img_np)
+            # print(np.max(depth_np_arr))
+            # colorized_depth_image = colorize_np_arr(
+            #     depth_np_arr, turbo_rgba
+            # )
+            # image_dict[camera_name] = colorized_depth_image
+    print('[{}] Colorized all frames'.format(datetime.now() - _s))
+
+    return futures
 
 
 if __name__ == '__main__':
@@ -209,11 +247,13 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', type=str, help='Output directory',
                         default='./output')
     parser.add_argument('--max_workers', type=int, default=1)
+    parser.add_argument('--files_to_handle', type=int, default=-1)
     args = parser.parse_args()
 
     max_workers = 1
     if args.max_workers != -1:
         max_workers = args.max_workers
+    executor = ThreadPoolExecutor(max_workers=max_workers)
 
     from turbo_map import RGBToPyCmap, turbo_colormap_data
 
@@ -237,26 +277,22 @@ if __name__ == '__main__':
         exit(1)
 
     # get the files in the directory
-    files = os.listdir(input_directory)
+    files = sorted(os.listdir(input_directory))
+    if args.files_to_handle > 0:
+        files = files[:args.files_to_handle]
+
     num_files = len(files)
     print(f'Reading from {input_directory} found {num_files} files')
 
     # go through them
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        collected_futures = {}
-        for i, f in enumerate(files):
-            print(f'({i}/{num_files}) Extracting lidar data from {f}')
-            # print('{}/{} files parsed. Current file: {}'.format(
-            #     i, len(files), f))
-            # go through all the files
-            _input_filename = os.path.join(input_directory, f)
-            # try:
-            #     handle_file(_input_filename, args.output_dir)
-            # except BaseException as e:
-            #     print(f'Error in processing file {f} with "{e}"')
-            _fut = executor.submit(handle_file, _input_filename, args.output_dir)
-            collected_futures[f] = _fut
+    collected_futures = {}
+    for i, f in enumerate(files):
+        print(f'({i}/{num_files}) Extracting lidar data from {f}')
+        _input_filename = os.path.join(input_directory, f)
+        futures = handle_file(_input_filename, args.output_dir)
+        collected_futures[f] = futures
 
+    for key, futures in collected_futures.items():
+        print(key, sum([f.done() for f in futures]))
 
-        for x in as_completed([_it for _, _it in collected_futures.items()]):
-            print(x.result())
+    executor.shutdown(wait=True)
