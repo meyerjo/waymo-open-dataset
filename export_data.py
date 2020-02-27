@@ -165,6 +165,29 @@ def colorize_depth_map_save_img(depth_map, output_path, frame_id):
     colorized_depth_image.save(_save_path)
 
 
+def handle_frame(frame, output_data_folder, frame_id):
+    print('[{}] {} Start handling frame'.format(
+        datetime.now(),
+        threading.get_ident(),
+        os.path.join(output_data_folder, 'frame_{:04d}'.format(frame_id))))
+    _s = datetime.now()
+    lidar = project_image_lidar_to_image_plane(frame, camera_names)
+
+    for camera_name, depth_np_matrix in lidar.items():
+        _fpath = os.path.join(output_data_folder, camera_name)
+        if not os.path.exists(_fpath):
+            mkdir_p(_fpath)
+
+        colorize_depth_map_save_img(depth_np_matrix, _fpath, frame_id)
+        # future = executor.submit(
+        #     colorize_depth_map_save_img, depth_np_matrix, _fpath, frame_id
+        # )
+        # futures.append(future)
+
+    print('[{}] {} End handling frame'.format(datetime.now() - _s, threading.get_ident()))
+
+
+
 
 def handle_file(input_filename, output_dir):
     assert executor is not None, 'executor has to be set to None'
@@ -208,36 +231,38 @@ def handle_file(input_filename, output_dir):
     print('[{}] Extract dense matrices for all frames'.format(datetime.now()))
     _s = datetime.now()
     image_matrices = []
-    for i, frame in enumerate(read_frames):
-        if i % 10 == 0:
-            print('Frame {}/{}'.format(i, len(read_frames)))
-            continue
-        image_matrices.append(project_image_lidar_to_image_plane(frame, camera_names))
-    print('[{}] Extracted all dense-matrices for all frames ({} / sample)'.format(
-        datetime.now() - _s, (datetime.now() - _s) / len(read_frames)))
-
-    print('[{}] Colorize all frames'.format(datetime.now()))
     futures = []
-    for frame_id, image_dict in enumerate(image_matrices):
-        for camera_name, depth_np_matrix in image_dict.items():
-            _fpath = os.path.join(output_data_folder, camera_name)
-            if not os.path.exists(_fpath):
-                mkdir_p(_fpath)
 
-            # colorize_depth_map_save_img(depth_np_matrix, _fpath, frame_id)
-            future = executor.submit(
-                colorize_depth_map_save_img, depth_np_matrix, _fpath, frame_id
-            )
-            futures.append(future)
+    for frame_id, frame in enumerate(read_frames):
+        _f = executor.submit(handle_frame, frame, output_data_folder, frame_id)
+        futures.append(_f)
 
-            # img_np = np.zeros(shape=(1280, 1920))
-            # depth_np_arr = pool_points_project_to_image(depth_np_matrix, img_np)
-            # print(np.max(depth_np_arr))
-            # colorized_depth_image = colorize_np_arr(
-            #     depth_np_arr, turbo_rgba
-            # )
-            # image_dict[camera_name] = colorized_depth_image
-    print('[{}] Colorized all frames'.format(datetime.now() - _s))
+    #
+    #
+    #
+    # for i, frame in enumerate(read_frames):
+    #     if i % 10 == 0:
+    #         print('Frame {}/{}'.format(i, len(read_frames)))
+    #         continue
+    #     image_matrices.append(project_image_lidar_to_image_plane(frame, camera_names))
+    # print('[{}] Extracted all dense-matrices for all frames ({} / sample)'.format(
+    #     datetime.now() - _s, (datetime.now() - _s) / len(read_frames)))
+    #
+    # print('[{}] Colorize all frames'.format(datetime.now()))
+    # futures = []
+    # for frame_id, image_dict in enumerate(image_matrices):
+    #     for camera_name, depth_np_matrix in image_dict.items():
+    #         _fpath = os.path.join(output_data_folder, camera_name)
+    #         if not os.path.exists(_fpath):
+    #             mkdir_p(_fpath)
+    #
+    #         # colorize_depth_map_save_img(depth_np_matrix, _fpath, frame_id)
+    #         future = executor.submit(
+    #             colorize_depth_map_save_img, depth_np_matrix, _fpath, frame_id
+    #         )
+    #         futures.append(future)
+    #
+    # print('[{}] Colorized all frames'.format(datetime.now() - _s))
 
     return futures
 

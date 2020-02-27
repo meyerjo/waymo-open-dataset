@@ -140,7 +140,7 @@ def turbo_rgba(r):
     Returns:
       The color for a given range
     """
-    c = plt.get_cmap('turbo')((r % 80.0) / 80.0)
+    c = plt.get_cmap('turbo')((r % 20.0) / 20.0)
     c = list(c)
     c[-1] = 0.5  # alpha
     return c
