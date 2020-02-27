@@ -1,21 +1,13 @@
-import os
-import re
-from concurrent.futures import ThreadPoolExecutor
-
 import tensorflow as tf
-import math
-import numpy as np
-import itertools
 
-tf.enable_eager_execution()
+if hasattr(tf, 'enable_eager_execution'):
+    tf.enable_eager_execution()
 
-from waymo_open_dataset.utils import range_image_utils
-from waymo_open_dataset.utils import transform_utils
-from waymo_open_dataset.utils import  frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+
 
 def show_camera_image(frame, camera_image, camera_labels, layout, cmap=None):
     """Show a camera image and the given camera labels."""
@@ -46,7 +38,8 @@ def show_camera_image(frame, camera_image, camera_labels, layout, cmap=None):
     plt.grid(False)
     plt.axis('off')
 
-def plot_range_image_helper(data, name, layout, vmin = 0, vmax=1, cmap='gray'):
+
+def plot_range_image_helper(data, name, layout, vmin=0, vmax=1, cmap='gray'):
     """Plots range image.
 
     Args:
@@ -63,11 +56,13 @@ def plot_range_image_helper(data, name, layout, vmin = 0, vmax=1, cmap='gray'):
     plt.grid(False)
     plt.axis('off')
 
+
 def get_range_image(range_images, laser_name, return_index):
     """Returns range image given a laser name and its return index."""
     return range_images[laser_name][return_index]
 
-def show_range_image(range_image, layout_index_start = 1):
+
+def show_range_image(range_image, layout_index_start=1):
     """Shows range image.
 
     Args:
@@ -79,15 +74,18 @@ def show_range_image(range_image, layout_index_start = 1):
     lidar_image_mask = tf.greater_equal(range_image_tensor, 0)
     range_image_tensor = tf.where(lidar_image_mask, range_image_tensor,
                                   tf.ones_like(range_image_tensor) * 1e10)
-    range_image_range = range_image_tensor[...,0]
-    range_image_intensity = range_image_tensor[...,1]
-    range_image_elongation = range_image_tensor[...,2]
+    range_image_range = range_image_tensor[..., 0]
+    range_image_intensity = range_image_tensor[..., 1]
+    range_image_elongation = range_image_tensor[..., 2]
     plot_range_image_helper(range_image_range.numpy(), 'range',
                             [8, 1, layout_index_start], vmax=75, cmap='gray')
     plot_range_image_helper(range_image_intensity.numpy(), 'intensity',
-                            [8, 1, layout_index_start + 1], vmax=1.5, cmap='gray')
+                            [8, 1, layout_index_start + 1], vmax=1.5,
+                            cmap='gray')
     plot_range_image_helper(range_image_elongation.numpy(), 'elongation',
-                            [8, 1, layout_index_start + 2], vmax=1.5, cmap='gray')
+                            [8, 1, layout_index_start + 2], vmax=1.5,
+                            cmap='gray')
+
 
 def projected_points_to_image(im_shape, points, color_func=None):
     depth_image_shape = im_shape[0:2] + (1,)
@@ -98,13 +96,14 @@ def projected_points_to_image(im_shape, points, color_func=None):
     im[x, y, 0] = d
     return im
 
+
 def colorize_np_arr(depth_map, color_func=None):
     # d_col = np.array([color_func(_) for _ in d])
     #
     # im[x, y, :] = d_col[:, 0:3] * 255
 
     from PIL import Image
-    assert(color_func is not None)
+    assert (color_func is not None)
     colorized_arr = color_func(depth_map)
     colorized_arr = np.hstack(colorized_arr[:-1])
 
@@ -117,6 +116,7 @@ def colorize_np_arr(depth_map, color_func=None):
     pil_im = Image.fromarray(color_im_arr_uint8)
 
     return pil_im
+
 
 def rgba(r):
     """Generates a color based on range.
@@ -131,6 +131,7 @@ def rgba(r):
     c[-1] = 0.5  # alpha
     return c
 
+
 def turbo_rgba(r):
     """Generates a color based on range.
 
@@ -144,6 +145,7 @@ def turbo_rgba(r):
     c[-1] = 0.5  # alpha
     return c
 
+
 def plot_image(camera_image, create_fig=True):
     """Plot a cmaera image."""
     if create_fig:
@@ -151,9 +153,10 @@ def plot_image(camera_image, create_fig=True):
     plt.imshow(tf.image.decode_jpeg(camera_image.image))
     plt.grid("off")
 
+
 def plot_points_on_image(
         projected_points, depth_image, camera_image, rgba_func,
-                         point_size=5.0):
+        point_size=5.0):
     """Plots points on a camera image.
 
     Args:
@@ -185,21 +188,25 @@ def plot_points_on_image(
     plt.imshow(depth_image)
     plt.grid("off")
 
+
 import numpy as np
-def asStride(arr,sub_shape,stride):
+
+
+def asStride(arr, sub_shape, stride):
     '''Get a strided sub-matrices view of an ndarray.
     See also skimage.util.shape.view_as_windows()
     '''
-    s0,s1=arr.strides[:2]
-    m1,n1=arr.shape[:2]
-    m2,n2=sub_shape
-    view_shape=(1+(m1-m2)//stride[0],1+(n1-n2)//stride[1],m2,n2)+arr.shape[2:]
-    strides=(stride[0]*s0,stride[1]*s1,s0,s1)+arr.strides[2:]
-    subs=np.lib.stride_tricks.as_strided(arr,view_shape,strides=strides)
+    s0, s1 = arr.strides[:2]
+    m1, n1 = arr.shape[:2]
+    m2, n2 = sub_shape
+    view_shape = (1 + (m1 - m2) // stride[0], 1 + (n1 - n2) // stride[1], m2,
+                  n2) + arr.shape[2:]
+    strides = (stride[0] * s0, stride[1] * s1, s0, s1) + arr.strides[2:]
+    subs = np.lib.stride_tricks.as_strided(arr, view_shape, strides=strides)
     return subs
 
 
-def poolingOverlap(mat,ksize,stride=None,method='max',pad=False):
+def poolingOverlap(mat, ksize, stride=None, method='max', pad=False):
     '''Overlapping pooling on 2D or 3D data.
     <mat>: ndarray, input array to pool.
     <ksize>: tuple of 2, kernel size in (ky, kx).
@@ -214,29 +221,29 @@ def poolingOverlap(mat,ksize,stride=None,method='max',pad=False):
     '''
 
     m, n = mat.shape[:2]
-    ky,kx=ksize
+    ky, kx = ksize
     if stride is None:
-        stride=(ky,kx)
-    sy,sx=stride
+        stride = (ky, kx)
+    sy, sx = stride
 
-    _ceil=lambda x,y: int(np.ceil(x/float(y)))
+    _ceil = lambda x, y: int(np.ceil(x / float(y)))
 
     if pad:
-        ny=_ceil(m,sy)
-        nx=_ceil(n,sx)
-        size=((ny-1)*sy+ky, (nx-1)*sx+kx) + mat.shape[2:]
-        mat_pad=np.full(size,np.nan)
-        mat_pad[:m,:n,...]=mat
+        ny = _ceil(m, sy)
+        nx = _ceil(n, sx)
+        size = ((ny - 1) * sy + ky, (nx - 1) * sx + kx) + mat.shape[2:]
+        mat_pad = np.full(size, np.nan)
+        mat_pad[:m, :n, ...] = mat
     else:
-        mat_pad=mat[:(m-ky)//sy*sy+ky, :(n-kx)//sx*sx+kx, ...]
+        mat_pad = mat[:(m - ky) // sy * sy + ky, :(n - kx) // sx * sx + kx, ...]
 
-    view=asStride(mat_pad,ksize,stride)
+    view = asStride(mat_pad, ksize, stride)
 
     if method is None:
         return view
-    elif method=='max':
-        return np.nanmax(view,axis=(2,3))
+    elif method == 'max':
+        return np.nanmax(view, axis=(2, 3))
     elif method == 'mean':
-        return np.nanmean(view,axis=(2,3))
+        return np.nanmean(view, axis=(2, 3))
     else:
         raise BaseException('Unknown method name: {}'.format(method))
